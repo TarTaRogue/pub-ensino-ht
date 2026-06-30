@@ -69,10 +69,12 @@ def plot_configuration(ax, Ts, Tinf, sim=None, Pr=None):
         ratio_u = ratio_t = 1.0
 
     d_max = 0.45                                   # extensão da CL mais espessa, no topo
+    ratio_v = float(prof_x[int(np.argmax(prof_u))])  # escala viscosa ~ posição do pico
     y = np.linspace(0.0, 1.0, 200)
     xi = np.clip(y if quente else (1.0 - y), 0.0, None)
     delta_u = d_max * ratio_u * xi ** 0.25
     delta_t = d_max * ratio_t * xi ** 0.25
+    delta_v = d_max * ratio_v * xi ** 0.25
 
     # Camada-limite térmica como REGIÃO sombreada: é onde ΔT≠0 e, portanto, onde
     # o empuxo atua. O pico de velocidade fica DENTRO dela (há força motriz ali);
@@ -80,9 +82,15 @@ def plot_configuration(ax, Ts, Tinf, sim=None, Pr=None):
     if sim is not None:
         ax.fill_betweenx(y, 0.0, delta_t, color=cor, alpha=0.12, zorder=1,
                          label=r"CL térmica $\delta_t$ (zona de empuxo)")
-    # Camada-limite de velocidade (momento): envelope
+    # Camada-limite de velocidade (momento): envelope externo
     ax.plot(delta_u, y, color="#117a65", lw=1.6, ls="--", zorder=2,
             label=r"CL de velocidade $\delta_u$")
+    # Escala viscosa junto à parede (cisalhamento de parede ~ empuxo): passa pelos
+    # picos do perfil. É sempre a camada MAIS fina — o pico mora nela, perto da
+    # parede. A ordenação de δ_t e δ_u em torno dela revela o regime de Pr.
+    if sim is not None:
+        ax.plot(delta_v, y, color="#0b5345", lw=1.4, ls="-", zorder=2,
+                label=r"camada viscosa $\delta_v$ (pico de $u$)")
 
     # Perfis de velocidade (forma real f') em estações ao longo do escoamento
     amp = 0.15
