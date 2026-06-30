@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 import ipywidgets as widgets
-from IPython.display import display, clear_output
+from IPython.display import display, clear_output, Markdown
 
 from . import natconv_iso as nc
 from . import viz_natconv as viz
@@ -26,7 +26,10 @@ def vertical_plate():
     compara o Nu da similaridade com o da correlação.
     """
     fluido = widgets.Dropdown(
-        options=[("Ar (propriedades em T_f)", "ar"), ("Personalizado", "custom")],
+        options=[("Ar (propriedades em T_f)", "ar"),
+                 ("Água (Pr alto, ~300 K)", "agua"),
+                 ("Mercúrio (Pr baixo, ~300 K)", "mercurio"),
+                 ("Personalizado", "custom")],
         value="ar", description="Fluido:",
     )
 
@@ -51,12 +54,12 @@ def vertical_plate():
             w.layout.display = disp
 
     def _props():
+        Tf = nc.film_temperature(Ts.value, Tinf.value)
         if fluido.value == "ar":
-            Tf = nc.film_temperature(Ts.value, Tinf.value)
             return nc.air_properties(Tf), Tf
-        else:
-            Tf = nc.film_temperature(Ts.value, Tinf.value)
+        if fluido.value == "custom":
             return nc.custom_properties(nu_w.value, alpha_w.value, k_w.value, beta_w.value), Tf
+        return nc.preset_properties(fluido.value), Tf
 
     def _update(*args):
         with out:
@@ -83,9 +86,24 @@ def vertical_plate():
             print(f"T_f = {Tf:.1f} K  |  ΔT = {abs(Ts.value-Tinf.value):.1f} K")
             print(f"Propriedades: ν={p.nu:.3e}  α={p.alpha:.3e}  "
                   f"k={p.k:.4f}  β={p.beta:.3e}  Pr={p.Pr:.3f}")
+            if fluido.value in ("agua", "mercurio"):
+                print("  (propriedades constantes de referência; só o ar é "
+                      "avaliado em T_f)")
             print(f"Ra = {s['Ra']:.3e}  |  Gr = {s['Gr']:.3e}  |  regime: {regime}")
             print(f"Nu (Churchill–Chu) = {s['Nu']:.2f}")
             print(f"h = {s['h']:.2f} W/m²K  |  q'' = {s['qpp']:.1f} W/m²")
+
+            # Sentido do escoamento e do fluxo de calor (depende do sinal de ΔT)
+            if Ts.value >= Tinf.value:
+                print("Sentido: placa mais quente que o fluido → o fluido sobe "
+                      "junto à parede; o calor sai da placa (q'' > 0).")
+            else:
+                print("Sentido: placa mais fria que o fluido → o fluido desce "
+                      "junto à parede; o calor entra na placa (q'' < 0).")
+                print("As magnitudes (Ra, Nu, h, |q''|) coincidem com as de um "
+                      "caso quente de mesmo |ΔT|: na aproximação de Boussinesq o "
+                      "problema é simétrico — o que se inverte é o sentido do "
+                      "escoamento e do fluxo de calor (ver configuração física).")
 
             if regime == "laminar":
                 Gr_L = s["Gr"]
@@ -124,7 +142,10 @@ def geometry_comparison():
     ΔT e comprimento característico.
     """
     fluido = widgets.Dropdown(
-        options=[("Ar (propriedades em T_f)", "ar"), ("Personalizado", "custom")],
+        options=[("Ar (propriedades em T_f)", "ar"),
+                 ("Água (Pr alto, ~300 K)", "agua"),
+                 ("Mercúrio (Pr baixo, ~300 K)", "mercurio"),
+                 ("Personalizado", "custom")],
         value="ar", description="Fluido:",
     )
     Ts   = widgets.FloatSlider(value=350.0, min=290.0, max=900.0, step=5.0,
@@ -150,7 +171,9 @@ def geometry_comparison():
         Tf = nc.film_temperature(Ts.value, Tinf.value)
         if fluido.value == "ar":
             return nc.air_properties(Tf), Tf
-        return nc.custom_properties(nu_w.value, alpha_w.value, k_w.value, beta_w.value), Tf
+        if fluido.value == "custom":
+            return nc.custom_properties(nu_w.value, alpha_w.value, k_w.value, beta_w.value), Tf
+        return nc.preset_properties(fluido.value), Tf
 
     def _update(*args):
         with out:
@@ -169,17 +192,50 @@ def geometry_comparison():
             print(f"{'geometria':<42}{'Nu':>10}{'h [W/m²K]':>14}{'q'' [W/m²]':>14}")
             points = {}
             dT = abs(Ts.value - Tinf.value)
+            fora = False
             for key, g in nc.GEOMETRIES.items():
                 Nu = g["nu"](Ra, p.Pr)
                 h = Nu * p.k / Lc.value
                 qpp = h * dT
                 points[key] = (Ra, Nu)
-                print(f"{g['label']:<42}{Nu:>10.2f}{h:>14.2f}{qpp:>14.1f}")
+                # Verificação das faixas de validade da correlação
+                Ra_lo, Ra_hi = g["Ra_range"]
+                Pr_lo, Pr_hi = g["Pr_range"]
+                issues = []
+                if not (Pr_lo <= p.Pr <= Pr_hi):
+                    issues.append("Pr")
+                if not (Ra_lo <= Ra <= Ra_hi):
+                    issues.append("Ra")
+                obs = ""
+                if issues:
+                    fora = True
+                    obs = "  (*) fora da faixa: " + ", ".join(issues)
+                print(f"{g['label']:<42}{Nu:>10.2f}{h:>14.2f}{qpp:>14.1f}{obs}")
+            if fora:
+                print("(*) o valor de Nu foi extrapolado além da faixa de "
+                      "validade da correlação — use com cautela.")
 
             viz.compare_geometries(p.Pr, points=points)
 
     for w in [fluido, Ts, Tinf, Lc, nu_w, alpha_w, k_w, beta_w]:
         w.observe(_update, "value")
+
+    # Texto das correlações aplicadas (uma vez, no topo da ferramenta), para o
+    # estudante saber exatamente quais equações estão sendo usadas.
+    linhas = ["**Correlações de Nu aplicadas (convecção natural, "
+              "superfícies isotérmicas):**", ""]
+    for g in nc.GEOMETRIES.values():
+        Ra_lo, Ra_hi = g["Ra_range"]
+        Pr_lo, Pr_hi = g["Pr_range"]
+        pr_txt = "todo Pr" if Pr_lo <= 0 else f"Pr ≥ {Pr_lo:g}"
+        linhas.append(f"**{g['label']}**")
+        linhas.append(f"$${g['corr']}$$")
+        linhas.append(f"Faixa de validade: {Ra_lo:g} ≤ Ra ≤ {Ra_hi:g} "
+                      f"&nbsp;•&nbsp; {pr_txt}")
+    linhas.append("_Lc é o comprimento característico de cada geometria; as "
+                  "propriedades entram via Ra e Pr. Fonte: Bergman/Incropera — "
+                  "confira constantes e faixas com o livro do curso._")
+    display(Markdown("\n\n".join(linhas)))
 
     _update()
     display(widgets.VBox([

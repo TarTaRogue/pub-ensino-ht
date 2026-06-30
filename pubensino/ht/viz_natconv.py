@@ -96,7 +96,8 @@ def plot_configuration(ax, Ts, Tinf):
                 ha="center", fontsize=12)
 
     ax.text(-0.03, 1.05, r"$T_s$", ha="center", fontsize=12, color=cor)
-    ax.text(0.72, 0.92, r"$T_\infty$ (repouso)", ha="center", fontsize=11, color="0.3")
+    ax.text(0.60, 0.55, r"$T_\infty$" + "\n(repouso)", ha="center",
+            fontsize=10, color="0.4")
     legenda = "fluido aquece e sobe" if quente else "fluido resfria e desce"
     ax.text(0.5, -0.09, f"placa {'quente' if quente else 'fria'} — {legenda}",
             ha="center", fontsize=9, color=cor)

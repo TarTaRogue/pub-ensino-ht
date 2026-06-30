@@ -76,6 +76,33 @@ def custom_properties(nu: float, alpha: float, k: float, beta: float) -> FluidPr
     return FluidProps(nu=nu, alpha=alpha, k=k, beta=beta, Pr=nu / alpha)
 
 
+# Fluidos pré-definidos com propriedades CONSTANTES, avaliadas na temperatura de
+# referência indicada (Tref). Permitem explorar o efeito do número de Prandtl
+# nas correlações e na solução de similaridade:
+#   - água:     Pr alto  (~5,8 a 300 K) -> camada-limite térmica fina, perfil de
+#               temperatura abrupto junto à parede (-theta'(0) grande);
+#   - mercúrio: Pr baixo (~0,025 a 300 K) -> camada-limite térmica espessa, muito
+#               maior que a de velocidade (típico de metais líquidos).
+# Fonte: Bergman/Incropera (Tab. A.6 água saturada; Tab. A.5 mercúrio).
+# OBS.: propriedades de líquidos variam fortemente com a temperatura (sobretudo
+# o beta da água); aqui são mantidas constantes por simplicidade didática. Para
+# um ponto específico, use o modo "Personalizado". Confira os valores com o livro.
+PRESET_FLUIDS: Dict[str, Dict] = {
+    "agua": dict(label="Água (Pr alto, ~300 K)", Tref=300.0,
+                 nu=8.55e-7, alpha=1.47e-7, k=0.613, beta=276.1e-6),
+    "mercurio": dict(label="Mercúrio (Pr baixo, ~300 K)", Tref=300.0,
+                     nu=1.13e-7, alpha=4.56e-6, k=8.54, beta=1.82e-4),
+}
+
+
+def preset_properties(name: str) -> FluidProps:
+    """Propriedades constantes de um fluido pré-definido (ver PRESET_FLUIDS)."""
+    if name not in PRESET_FLUIDS:
+        raise ValueError(f"Fluido pré-definido desconhecido: {name}")
+    f = PRESET_FLUIDS[name]
+    return custom_properties(f["nu"], f["alpha"], f["k"], f["beta"])
+
+
 # ============================================================
 # (2) Grupos adimensionais
 # ============================================================
@@ -159,30 +186,44 @@ GEOMETRIES = {
         nu=lambda Ra, Pr: nu_vertical_plate(Ra, Pr),
         Lc_label="L (altura)",
         Ra_range=(1e-1, 1e13),
+        Pr_range=(0.0, float("inf")),
+        corr=r"Nu = \left\{0{,}825 + \dfrac{0{,}387\,Ra^{1/6}}"
+             r"{\left[1+(0{,}492/Pr)^{9/16}\right]^{8/27}}\right\}^{2}",
     ),
     "horizontal_cylinder": dict(
         label="Cilindro horizontal (L = D)",
         nu=lambda Ra, Pr: nu_horizontal_cylinder(Ra, Pr),
         Lc_label="D (diâmetro)",
         Ra_range=(1e-5, 1e12),
+        Pr_range=(0.0, float("inf")),
+        corr=r"Nu = \left\{0{,}60 + \dfrac{0{,}387\,Ra^{1/6}}"
+             r"{\left[1+(0{,}559/Pr)^{9/16}\right]^{8/27}}\right\}^{2}",
     ),
     "sphere": dict(
         label="Esfera (L = D)",
         nu=lambda Ra, Pr: nu_sphere(Ra, Pr),
         Lc_label="D (diâmetro)",
         Ra_range=(1e0, 1e11),
+        Pr_range=(0.7, float("inf")),
+        corr=r"Nu = 2 + \dfrac{0{,}589\,Ra^{1/4}}"
+             r"{\left[1+(0{,}469/Pr)^{9/16}\right]^{4/9}}",
     ),
     "hplate_hot_up": dict(
         label="Placa horizontal, face quente p/ cima (L = A/P)",
         nu=lambda Ra, Pr: nu_horizontal_plate_hot_up(Ra),
         Lc_label="Lc = A/P",
         Ra_range=(1e4, 1e11),
+        Pr_range=(0.7, float("inf")),
+        corr=r"Nu = 0{,}54\,Ra^{1/4}\ (10^{4}\!\le\!Ra\!\le\!10^{7});\ \ "
+             r"Nu = 0{,}15\,Ra^{1/3}\ (10^{7}\!\le\!Ra\!\le\!10^{11})",
     ),
     "hplate_hot_down": dict(
         label="Placa horizontal, face quente p/ baixo (L = A/P)",
         nu=lambda Ra, Pr: nu_horizontal_plate_hot_down(Ra),
         Lc_label="Lc = A/P",
         Ra_range=(1e5, 1e10),
+        Pr_range=(0.7, float("inf")),
+        corr=r"Nu = 0{,}27\,Ra^{1/4}\ (10^{5}\!\le\!Ra\!\le\!10^{10})",
     ),
 }
 
