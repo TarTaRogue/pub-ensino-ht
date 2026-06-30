@@ -74,12 +74,15 @@ def plot_configuration(ax, Ts, Tinf, sim=None, Pr=None):
     delta_u = d_max * ratio_u * xi ** 0.25
     delta_t = d_max * ratio_t * xi ** 0.25
 
-    # Envelopes das camadas-limite
+    # Camada-limite térmica como REGIÃO sombreada: é onde ΔT≠0 e, portanto, onde
+    # o empuxo atua. O pico de velocidade fica DENTRO dela (há força motriz ali);
+    # fora dela o escoamento só persiste por difusão de momento (cauda até δ_u).
+    if sim is not None:
+        ax.fill_betweenx(y, 0.0, delta_t, color=cor, alpha=0.12, zorder=1,
+                         label=r"CL térmica $\delta_t$ (zona de empuxo)")
+    # Camada-limite de velocidade (momento): envelope
     ax.plot(delta_u, y, color="#117a65", lw=1.6, ls="--", zorder=2,
             label=r"CL de velocidade $\delta_u$")
-    if sim is not None:
-        ax.plot(delta_t, y, color=cor, lw=1.6, ls=":", zorder=2,
-                label=r"CL térmica $\delta_t$")
 
     # Perfis de velocidade (forma real f') em estações ao longo do escoamento
     amp = 0.15
