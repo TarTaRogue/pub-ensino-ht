@@ -17,22 +17,29 @@ def _info_box(ax, txt):
             fontsize=9, bbox=dict(boxstyle="round", alpha=0.10))
 
 
-def plot_configuration(ax, Ts, Tinf):
+def _bl_edge(eta, prof, frac):
+    """Maior eta em que 'prof' ainda é >= frac — usado como borda da camada-limite."""
+    idx = np.where(prof >= frac)[0]
+    return float(eta[idx[-1]]) if len(idx) else float(eta[-1])
+
+
+def plot_configuration(ax, Ts, Tinf, sim=None, Pr=None):
     """
     Esquema didático da placa vertical isotérmica imersa em fluido em repouso.
 
-    O sentido do escoamento e a orientação da camada-limite dependem do sinal
-    de (Ts - Tinf):
-      * placa quente (Ts > Tinf): o fluido junto à parede aquece, fica menos
-        denso e SOBE — a camada-limite nasce no bordo inferior e cresce para
-        cima; o calor sai da placa.
-      * placa fria (Ts < Tinf): o fluido junto à parede resfria, fica mais
-        denso e DESCE — a camada-limite nasce no bordo superior e cresce para
-        baixo; o calor entra na placa.
-    O perfil de velocidade é desenhado com a distância normal à placa no eixo
-    horizontal e a magnitude de u como deflexão vertical (u é a componente de
-    velocidade ao longo da placa): zero na parede, pico dentro da camada-limite
-    e retorno a zero na borda.
+    Sentido (sinal de Ts - Tinf):
+      * placa quente (Ts > Tinf): o fluido aquece, fica menos denso e SOBE — a
+        camada-limite nasce no bordo inferior e cresce para cima; o calor sai.
+      * placa fria (Ts < Tinf): o fluido resfria, fica mais denso e DESCE — a
+        camada-limite nasce no bordo superior e cresce para baixo; o calor entra.
+
+    Quando a solução de similaridade `sim` é fornecida, o desenho fica fiel ao
+    fluido: o perfil de velocidade usa a forma real de f'(eta) (pico junto à
+    parede e cauda) e são traçadas DUAS camadas-limite — de velocidade
+    (delta_u) e térmica (delta_t) — na proporção real delta_t/delta_u = eta_t/eta_u
+    extraída dos perfis. Assim, para Pr alto (água) a CL térmica aparece bem
+    mais fina que a de velocidade; para Pr baixo (mercúrio), comparável ou mais
+    espessa.
     """
     quente = Ts >= Tinf
     flow = 1.0 if quente else -1.0                 # +1 sobe, -1 desce
@@ -42,68 +49,85 @@ def plot_configuration(ax, Ts, Tinf):
     ax.add_patch(Rectangle((-0.06, 0.0), 0.06, 1.0,
                            facecolor=cor, edgecolor="k", alpha=0.85, zorder=3))
 
-    # Coordenada ao longo do escoamento (0 no bordo de ataque):
-    #   quente -> bordo embaixo (xi = y);  fria -> bordo em cima (xi = 1 - y).
-    c_delta = 0.42
+    # Forma do perfil de velocidade e razão de espessuras a partir da similaridade
+    if sim is not None:
+        eta = np.asarray(sim["eta"], dtype=float)
+        fpn = np.asarray(sim["fp"], dtype=float); fpn = fpn / fpn.max()
+        thn = np.asarray(sim["theta"], dtype=float)
+        eta_u = _bl_edge(eta, fpn, 0.01)           # borda da CL de velocidade
+        eta_t = _bl_edge(eta, thn, 0.01)           # borda da CL térmica
+        eta_ref = max(eta_u, eta_t)
+        mask = eta <= eta_u
+        prof_x = eta[mask] / eta_ref               # fração da extensão de referência
+        prof_u = fpn[mask]
+        ratio_u, ratio_t = eta_u / eta_ref, eta_t / eta_ref
+    else:
+        # fallback qualitativo (Pr ~ 1): forma genérica, uma única camada-limite
+        s = np.linspace(0.0, 1.0, 80)
+        prof_u = s * np.exp(1.0 - 5.0 * s); prof_u = prof_u / prof_u.max()
+        prof_x = s
+        ratio_u = ratio_t = 1.0
+
+    d_max = 0.45                                   # extensão da CL mais espessa, no topo
     y = np.linspace(0.0, 1.0, 200)
-    xi = y if quente else (1.0 - y)
-    delta = c_delta * np.clip(xi, 0.0, None) ** 0.25
-    ax.plot(delta, y, color="0.35", lw=1.8, ls="--", zorder=2,
-            label=r"camada-limite $\delta$")
+    xi = np.clip(y if quente else (1.0 - y), 0.0, None)
+    delta_u = d_max * ratio_u * xi ** 0.25
+    delta_t = d_max * ratio_t * xi ** 0.25
 
-    # Forma do perfil de velocidade f'(eta): zero na parede, pico junto à parede,
-    # retorno a zero na borda da camada-limite.
-    s = np.linspace(0.0, 1.0, 80)                  # s = distância normal / delta
-    u_hat = s * np.exp(1.0 - 5.0 * s)
-    u_hat = u_hat / u_hat.max()                    # normalizado a [0,1]
-    amp = 0.16                                     # amplitude vertical do perfil
-    s_peak = s[np.argmax(u_hat)]
+    # Envelopes das camadas-limite
+    ax.plot(delta_u, y, color="#117a65", lw=1.6, ls="--", zorder=2,
+            label=r"CL de velocidade $\delta_u$")
+    if sim is not None:
+        ax.plot(delta_t, y, color=cor, lw=1.6, ls=":", zorder=2,
+                label=r"CL térmica $\delta_t$")
 
-    for j, xq in enumerate([0.32, 0.62, 0.92]):    # estações ao longo do escoamento
+    # Perfis de velocidade (forma real f') em estações ao longo do escoamento
+    amp = 0.15
+    x_peak_frac = prof_x[int(np.argmax(prof_u))]
+    for j, xq in enumerate([0.34, 0.64, 0.94]):
         y0 = xq if quente else (1.0 - xq)          # altura da estação
-        d_loc = c_delta * xq ** 0.25               # espessura local da CL
-        xs = s * d_loc                             # eixo horizontal = distância normal
-        ys = y0 + flow * amp * u_hat               # deflexão vertical = magnitude de u
+        scale = d_max * xq ** 0.25                 # extensão local de referência
+        xs = prof_x * scale                        # eixo horizontal = distância normal
+        ys = y0 + flow * amp * prof_u              # deflexão vertical = magnitude de u
         lbl = "perfil de $u$" if j == 0 else None
         ax.plot(xs, ys, color="#117a65", lw=1.7, zorder=4, label=lbl)
-        # "rake" tracejado: eixo normal local, da parede à borda da CL
-        ax.plot([0.0, d_loc], [y0, y0], color="#117a65", lw=0.8, ls=":",
-                alpha=0.7, zorder=4)
-        # seta no pico indicando o sentido do escoamento
-        ax.annotate("", xy=(s_peak * d_loc, y0 + flow * amp * 1.18),
-                    xytext=(s_peak * d_loc, y0),
-                    arrowprops=dict(arrowstyle="->", color="#117a65", lw=1.3))
+        ax.plot([0.0, ratio_u * scale], [y0, y0], color="#117a65", lw=0.7,
+                ls=":", alpha=0.6, zorder=4)       # eixo normal local (rake)
+        ax.annotate("", xy=(x_peak_frac * scale, y0 + flow * amp * 1.18),
+                    xytext=(x_peak_frac * scale, y0),
+                    arrowprops=dict(arrowstyle="->", color="#117a65", lw=1.2))
 
     # Seta global do sentido do escoamento, junto à placa
     ya0, ya1 = (0.12, 0.88) if quente else (0.88, 0.12)
-    ax.annotate("", xy=(0.135, ya1), xytext=(0.135, ya0),
-                arrowprops=dict(arrowstyle="-|>", color="#117a65",
-                                lw=2.2, alpha=0.55))
+    ax.annotate("", xy=(0.115, ya1), xytext=(0.115, ya0),
+                arrowprops=dict(arrowstyle="-|>", color="#117a65", lw=2.2, alpha=0.5))
 
     # Sentido do fluxo de calor q'': sai da placa (quente) ou entra (fria)
     if quente:
-        ax.annotate("", xy=(0.105, 0.50), xytext=(0.0, 0.50),
+        ax.annotate("", xy=(0.095, 0.50), xytext=(0.0, 0.50),
                     arrowprops=dict(arrowstyle="-|>", color=cor, lw=1.8))
-        ax.text(0.115, 0.50, r"$q''$ sai", color=cor, fontsize=9, va="center")
+        ax.text(0.105, 0.50, r"$q''$ sai", color=cor, fontsize=9, va="center")
     else:
-        ax.annotate("", xy=(0.0, 0.50), xytext=(0.105, 0.50),
+        ax.annotate("", xy=(0.0, 0.50), xytext=(0.095, 0.50),
                     arrowprops=dict(arrowstyle="-|>", color=cor, lw=1.8))
-        ax.text(0.115, 0.50, r"$q''$ entra", color=cor, fontsize=9, va="center")
+        ax.text(0.105, 0.50, r"$q''$ entra", color=cor, fontsize=9, va="center")
 
     # Gravidade (sempre para baixo)
-    ax.annotate("g", xy=(0.88, 0.12), xytext=(0.88, 0.30),
+    ax.annotate("g", xy=(0.92, 0.12), xytext=(0.92, 0.30),
                 arrowprops=dict(arrowstyle="->", color="k", lw=2.0),
                 ha="center", fontsize=12)
 
     ax.text(-0.03, 1.05, r"$T_s$", ha="center", fontsize=12, color=cor)
-    ax.text(0.60, 0.55, r"$T_\infty$" + "\n(repouso)", ha="center",
+    ax.text(0.72, 0.55, r"$T_\infty$" + "\n(repouso)", ha="center",
             fontsize=10, color="0.4")
-    legenda = "fluido aquece e sobe" if quente else "fluido resfria e desce"
-    ax.text(0.5, -0.09, f"placa {'quente' if quente else 'fria'} — {legenda}",
+    sub = "fluido aquece e sobe" if quente else "fluido resfria e desce"
+    if Pr is not None:
+        sub += f"   |   Pr = {Pr:.3g}"
+    ax.text(0.5, -0.11, f"placa {'quente' if quente else 'fria'} — {sub}",
             ha="center", fontsize=9, color=cor)
 
-    ax.set_xlim(-0.10, 1.0)
-    ax.set_ylim(-0.14, 1.15)
+    ax.set_xlim(-0.10, 1.05)
+    ax.set_ylim(-0.16, 1.15)
     ax.set_xlabel("distância normal à placa →")
     ax.set_ylabel("altura ao longo da placa →")
     ax.set_title("Configuração física")
@@ -175,7 +199,7 @@ def plot_nu_ra(ax, geometry, Pr, Ra_pt=None, Nu_pt=None):
 def dashboard_vertical_plate(Ts, Tinf, L, props, summary, sim, x, delta):
     """Figura 2x2 para a ferramenta da placa vertical."""
     fig, axes = plt.subplots(2, 2, figsize=(11, 8.5))
-    plot_configuration(axes[0, 0], Ts, Tinf)
+    plot_configuration(axes[0, 0], Ts, Tinf, sim=sim, Pr=props.Pr)
     plot_similarity(axes[0, 1], sim, props.Pr)
     plot_bl_growth(axes[1, 0], x, delta, L)
     plot_nu_ra(axes[1, 1], "vertical_plate", props.Pr,
