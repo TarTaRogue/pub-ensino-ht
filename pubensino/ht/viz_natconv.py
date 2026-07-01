@@ -239,3 +239,83 @@ def compare_geometries(Pr, points=None):
     ax.legend(loc="upper left", fontsize=8)
     fig.tight_layout()
     plt.show()
+
+
+# ============================================================
+# Análise de escala (Bejan) — visualizações
+# ============================================================
+
+def plot_scale_balance(ax, Pr):
+    """
+    Barras dos três termos do balanço de momento (inércia, atrito, empuxo),
+    normalizados de modo que o empuxo = 1. Mostra qual par se equilibra: para
+    Pr alto o atrito equilibra o empuxo (inércia ~ 1/Pr desprezível); para Pr
+    baixo é a inércia (atrito ~ Pr desprezível). A razão inércia/atrito é 1/Pr.
+    """
+    b = nc.scale_momentum_balance(Pr)
+    termos = ["inércia\n$u\\,u_x$", "atrito\n$\\nu\\,u_{yy}$", "empuxo\n$g\\beta\\Delta T$"]
+    vals = [b["inertia"], b["friction"], b["buoyancy"]]
+    # destaca os termos que se equilibram; apaga o desprezível. Na transição
+    # (Pr ~ 1) inércia e atrito são comparáveis: ambos ficam destacados.
+    if b["transition"]:
+        cores = ["#117a65", "#117a65", "#c0392b"]
+    elif Pr >= 1.0:                    # atrito–empuxo
+        cores = ["#c9c9c9", "#117a65", "#c0392b"]
+    else:                              # inércia–empuxo
+        cores = ["#117a65", "#c9c9c9", "#c0392b"]
+    ax.bar(termos, vals, color=cores, edgecolor="k", linewidth=0.8, width=0.6)
+    ax.axhline(1.0, color="0.5", lw=0.8, ls="--")
+    for i, v in enumerate(vals):
+        ax.text(i, v + 0.03, f"{v:.3g}", ha="center", va="bottom", fontsize=9)
+    ax.set_ylim(0, 1.35)
+    ax.set_ylabel("magnitude relativa (empuxo = 1)")
+    ax.set_title(f"Balanço de momento — {b['driver']}")
+    ax.text(0.5, 1.24, f"inércia/atrito = 1/Pr = {b['inertia_over_friction']:.3g}",
+            transform=ax.transData, ha="center", fontsize=9, color="0.3")
+    ax.set_axisbelow(True)
+    ax.grid(True, axis="y", alpha=0.25)
+
+
+def plot_reduced_nu(ax, Pr_current, pr_grid, nubar_sim, nubar_corr):
+    """
+    Nu reduzido (Nu/Ra^(1/4)) em função de Pr, isolando a dependência de Prandtl.
+    Sobrepõe: similaridade exata (pontos), correlação de Churchill–Chu (linha) e
+    as duas assíntotas de escala — constante para Pr>>1 (Nu~Ra^(1/4)) e ∝Pr^(1/4)
+    para Pr<<1 (Nu~(Ra·Pr)^(1/4)). O Pr atual é destacado.
+    """
+    pr_grid = np.asarray(pr_grid)
+    C_hi = nc.reduced_nu_churchill(1e6)                       # -> ~0.670
+    C_lo = nc.reduced_nu_churchill(1e-6) / (1e-6) ** 0.25     # -> ~0.800
+    prx = np.logspace(np.log10(pr_grid.min()), np.log10(pr_grid.max()), 200)
+
+    ax.loglog(prx, np.full_like(prx, C_hi), ls="--", color="#b9770e", lw=1.6,
+              label=r"escala Pr$\gg$1: Nu$\sim$Ra$^{1/4}$")
+    ax.loglog(prx, C_lo * prx ** 0.25, ls=":", color="#6c3483", lw=1.8,
+              label=r"escala Pr$\ll$1: Nu$\sim$(Ra·Pr)$^{1/4}$")
+    ax.loglog(pr_grid, nubar_corr, "-", color="#1f4e79", lw=2.2,
+              label="Churchill–Chu (laminar)")
+    ax.loglog(pr_grid, nubar_sim, "o", ms=4.5, color="#c0392b",
+              label="similaridade (Ostrach)")
+
+    Nred = nc.reduced_nu_churchill(Pr_current)
+    ax.axvline(Pr_current, color="0.6", lw=0.9, ls="-", alpha=0.7)
+    ax.loglog([Pr_current], [Nred], "*", ms=15, color="k", zorder=6)
+    ax.annotate(f"Pr = {Pr_current:.3g}", xy=(Pr_current, Nred),
+                xytext=(6, -12), textcoords="offset points", fontsize=9)
+
+    ax.set_xlabel("Pr")
+    ax.set_ylabel(r"Nu reduzido  $=$  Nu $/$ Ra$^{1/4}$")
+    ax.set_title("Dependência de Pr: escala vs. exato vs. correlação")
+    ax.grid(True, which="both", alpha=0.25)
+    ax.legend(loc="lower right", fontsize=8)
+
+
+def dashboard_scale_analysis(Pr, Ra, pr_grid, nubar_sim, nubar_corr):
+    """Figura 1x2 da análise de escala: balanço de termos + Nu reduzido vs Pr."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5.2))
+    plot_scale_balance(axes[0], Pr)
+    plot_reduced_nu(axes[1], Pr, pr_grid, nubar_sim, nubar_corr)
+    fig.suptitle("Análise de escala (Bejan) — placa vertical isotérmica",
+                 fontsize=13)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
